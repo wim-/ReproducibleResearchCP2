@@ -1,0 +1,165 @@
+---
+title: "Storm impact on population health and the economic consequences"
+author: "github.com/wim-"
+date: "Sunday, February 22, 2015"
+output: html_document
+---
+```{r intro,echo=FALSE, results='hide', message=FALSE}
+## set project specific variables
+Sys.setlocale(category = "LC_TIME", locale = "C")
+```
+
+## Synopsis
+This report describes the impact of US storms on both people as well as the economy in the US. The analysis is based on data collected by National Weather Service (NWS) and made available by the National Climatic Data Center (NCDC).  
+The analyses below show that tornados hav by far the margest impact on both people as well as on the US economy.
+
+
+## Data Processing
+### Getting the data
+To process the data, first the following packages are loaded:
+```{r packages, results='hide', message=FALSE}
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(ggplot2)
+```
+
+In the following step, the data is downloaded from the web. Additionally, to limit the size of the data frame, only the variables required later on in the analysis are kept and stored in a separate file so that the unpacking and filtering doesn't have to be repeated on future runs of the code.
+```{r data}
+fileURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+sourcefile <- "./data/repdata-data-StormData.csv.bz2"
+
+if(!file.exists(sourcefile)){
+      if(!file.exists("./data")){
+            dir.create("./data")
+      }
+      download.file(fileURL, sourcefile)
+      datedownloaded <- now ()
+      write.table(datedownloaded,
+                file="./data/sourcefile_datedownloaded.txt",
+                row.names = FALSE,
+                col.names = FALSE
+                )
+}
+
+
+if(!file.exists("./data/data_subset.csv")){
+      my_data <-
+            read.csv(bzfile(sourcefile)) %>%
+            tbl_df() %>%
+            select(REFNUM,
+                   EVTYPE,
+                   FATALITIES, INJURIES,
+                   PROPDMG, PROPDMGEXP,
+                   CROPDMG, CROPDMGEXP
+                   )
+      write.table(my_data,
+                  file = "./data/data_subset.csv",
+                  sep = ",",
+                  row.names = FALSE
+                )
+}
+
+if(!"my_data" %in% ls()){
+      my_data <-
+            read.table("./data/data_subset.csv",
+                       header = TRUE,
+                       sep = ",") %>%
+            tbl_df()
+      datedownloaded <-
+            read.table("./data/sourcefile_datedownloaded.txt", sep=",")[1,1] %>%
+            ymd_hms()
+}
+```
+The file used in this analysis was downloaded at `r datedownloaded`.
+
+### Exploring the data
+The different event types are not in accordance with rules of tidy data. Some instances contain f.e. dates, times or references to months as well. This was not further investigated it this time. For a more detailed and specific study at a later stage, it should at least be verified if there is an impact of this on the overall results.
+
+### Structuring the data
+Since we need to answer to separate questions, 2 different data sets are drafted up.  
+The first one contains the number of fatalities and injuries sustained per storm occurance. These are first grouped per event type and then added together. Then, the top percentile is filtered out and a tidy data set is created in order represent the data graphicaly later on in the results section.
+```{r health}
+health <- select(my_data,
+                 EVTYPE,
+                 FATALITIES,
+                 INJURIES) %>%
+      group_by(EVTYPE) %>%
+      summarise(fatalities = sum(FATALITIES),
+                injuries = sum(INJURIES),
+                total = fatalities + injuries) %>%
+      filter(total > quantile(.$total, probs = 0.99)) %>%
+      select(-total) %>%
+      gather(impact, number, -EVTYPE)
+```
+
+The second data set contains the monetary values in USD of the damages occured both to property as well as crops. The estimation of these damages is given in two parts. First, the value is rounded to 3 significant digits, second, an alphabetical character indicates the actual size ('k' for thousand, 'M' for million and so on). Both are stored as 2 separate variables. In order to obtain the actual value, these alphabetical characters will be converted to their proper numeric value with the following function:
+```{r expConversion}
+exp <- function(n){
+      options(warn=-1) # suppres warnings while calling the function
+      exp <- 1
+      if(n %in% c('1')){exp <- 10^1}
+      if(n %in% c('2','h','H')){exp <- 10^2}
+      if(n %in% c('3','k','K')){exp <- 10^3}
+      if(n %in% c('4')){exp <- 10^4}
+      if(n %in% c('5')){exp <- 10^5}
+      if(n %in% c('6','m','M')){exp <- 10^6}
+      if(n %in% c('7')){exp <- 10^7}
+      if(n %in% c('8')){exp <- 10^8}
+      if(n %in% c('9','b','B')){exp <- 10^9}
+      return(exp)
+}
+```
+
+First, the damages sustained per storm are calculated per occurance and are then grouped per event type and to finally be added together. Next, the top percentile is filtered out and a tidy data set is created in order represent the data graphicaly later on in the results section.
+```{r economic}
+economic <- select(my_data,
+                   EVTYPE,  
+                   PROPDMG,
+                   PROPDMGEXP,
+                   CROPDMG,
+                   CROPDMGEXP) %>%
+      mutate(TotPROPDMG = PROPDMG * exp(PROPDMGEXP),
+             TotCROPDMG = CROPDMG * exp(CROPDMGEXP)) %>%
+      group_by(EVTYPE) %>%
+      summarise(PropertyDamage = sum(TotPROPDMG),
+                CropDamage = sum(TotCROPDMG),
+                TotDMG = PropertyDamage + CropDamage) %>%
+      filter(TotDMG > quantile(.$TotDMG, probs = 0.99)) %>%
+      select(-TotDMG) %>%
+      gather(type, USD, -EVTYPE)
+```
+
+## Results
+### Question 1: Most harmful events
+```{r graphQ1}
+ggplot(health, aes(x = reorder(EVTYPE,number), y = number, fill = impact)) +
+      geom_bar(stat = "identity") +
+      labs(title = "Top percentile most harmful events",
+           x = "Type of events", 
+           y = "Number of people impacted") +
+      coord_flip()
+```
+
+The graph clearly shows Tornado's beeing at the top for both fatalities and injuries.
+
+### Question 2: Largest economic consequences
+```{r graphQ2}
+ggplot(economic, aes(x = reorder(EVTYPE,USD), y = USD, fill = type)) +
+      geom_bar(stat = "identity") +
+      labs(title = "Top percentile largest economic consequences",
+           x = "Type of events", 
+           y = "Total (in USD)") +
+      coord_flip()
+```
+
+The economic impact of tornado's is little less outspoken, but also here it is at the top.
+
+## Data
+The data for the purpose of this analysis comes form: [dataset](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2).  
+Some additional information can be found here:
+
+- [codebook](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+- [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+Additionally, all the code and other relevant info can be found on [GitHub](https://github.com/wim-/ReproducibleResearchCP2)
