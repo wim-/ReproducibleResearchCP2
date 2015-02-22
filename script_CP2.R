@@ -101,7 +101,6 @@ health <- select(my_data,
                 injuries = sum(INJURIES),
                 total = fatalities + injuries) %>%
       filter(total > quantile(.$total, probs = 0.99)) %>%
-      arrange(desc(total)) %>%
       select(-total) %>%
       gather(impact, number, -EVTYPE)
       
@@ -152,7 +151,6 @@ economic <- select(my_data,
                 CropDamage = sum(TotCROPDMG),
                 TotDMG = PropertyDamage + CropDamage) %>%
       filter(TotDMG > quantile(.$TotDMG, probs = 0.99)) %>%
-      arrange(desc(TotDMG)) %>%
       select(-TotDMG) %>%
       gather(type, USD, -EVTYPE)
       
@@ -175,30 +173,3 @@ ggplot(economic, aes(x = reorder(EVTYPE,USD), y = USD, fill = type)) +
            x = "Type of events", 
            y = "Total (in USD)") +
       coord_flip()
-
-#####################################
-## step x:                         ##
-#####################################
-
-my_data2 <- filter(my_data, REFNUM<=100)
-
-levels(my_data$PROPDMGEXP)
-levels(my_data$CROPDMGEXP)
-
-filter(my_data, PROPDMG == 0) %>%
-      group_by(PROPDMGEXP) %>%
-      summarise(total = n())
-
-a <- filter(economic, CROPDMG != 0) %>%
-      group_by(TotCROPDMG) %>%
-      summarise(total = n())
-
-filter(my_data, CROPDMG == 0) %>%
-      group_by(CROPDMGEXP) %>%
-      summarise(total = n())
-
-filter(my_data, CROPDMG != 0) %>%
-      group_by(CROPDMGEXP) %>%
-      summarise(total = n())
-
-quantile(pack_sum$count, probs = 0.99)
